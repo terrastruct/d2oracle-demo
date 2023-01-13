@@ -1,0 +1,31 @@
+movie: {
+  id: integer
+  star: integer
+  budget: integer
+  profit: integer
+  producer: integer
+  dialogue: integer
+}
+movie.shape: sql_table
+actor: {
+  id: integer
+  name: text
+  native_lang: integer
+}
+actor.shape: sql_table
+producer: {
+  id: integer
+  name: text
+  native_lang: integer
+}
+producer.shape: sql_table
+language: {
+  id: integer
+  name: text
+}
+language.shape: sql_table
+movie.star -> actor.id
+movie.producer -> producer.id
+movie.dialogue -> language.id
+producer.native_lang -> language.id
+actor.native_lang -> language.id
