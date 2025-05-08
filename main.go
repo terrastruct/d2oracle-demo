@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,19 +13,20 @@ import (
 	"oss.terrastruct.com/d2/d2lib"
 	"oss.terrastruct.com/d2/d2oracle"
 	"oss.terrastruct.com/d2/d2renderers/d2svg"
+	dlog "oss.terrastruct.com/d2/lib/log"
 	"oss.terrastruct.com/d2/lib/textmeasure"
 )
 
 func main() {
-	ctx := context.Background()
+	ctx := dlog.WithDefault(context.Background())
 
 	// Start with a new, empty graph
-	_, graph, _ := d2lib.Compile(ctx, "", nil)
+	_, graph, _ := d2lib.Compile(ctx, "", nil, nil)
 
 	// Initialize a ruler to measure glyphs of text
 	ruler, _ := textmeasure.NewRuler()
 
-	f, _ := ioutil.ReadFile(filepath.Join("plan.sql"))
+	f, _ := os.ReadFile(filepath.Join("plan.sql"))
 
 	queries := parseSQL(string(f))
 
@@ -35,22 +36,26 @@ func main() {
 		// Turn the graph into a script
 		script := d2format.Format(graph.AST)
 
+		layoutResolver := func(engine string) (d2graph.LayoutGraph, error) {
+			return d2dagrelayout.DefaultLayout, nil
+		}
 		// Compile the script with given theme and layout
-		diagram, _, _ := d2lib.Compile(context.Background(), script, &d2lib.CompileOptions{
-			Layout: d2dagrelayout.DefaultLayout,
-			Ruler:  ruler,
-		})
+		diagram, _, _ := d2lib.Compile(ctx, script, &d2lib.CompileOptions{
+			LayoutResolver: layoutResolver,
+			Ruler:          ruler,
+		}, nil)
 
 		// Render to SVG
+		padding := int64(d2svg.DEFAULT_PADDING)
 		out, _ := d2svg.Render(diagram, &d2svg.RenderOpts{
-			Pad: d2svg.DEFAULT_PADDING,
+			Pad: &padding,
 		})
 
 		// Write to disk
-		_ = ioutil.WriteFile(filepath.Join("svgs", fmt.Sprintf("step%d.svg", i)), out, 0600)
+		_ = os.WriteFile(filepath.Join("svgs", fmt.Sprintf("step%d.svg", i)), out, 0600)
 	}
 
-	_ = ioutil.WriteFile("out.d2", []byte(d2format.Format(graph.AST)), 0600)
+	_ = os.WriteFile("out.d2", []byte(d2format.Format(graph.AST)), 0600)
 }
 
 type Query struct {
@@ -67,16 +72,16 @@ func (q Query) transformGraph(g *d2graph.Graph) *d2graph.Graph {
 	switch q.Command {
 	case "create_table":
 		// Create an object with the ID set to the table name
-		newG, newKey, _ := d2oracle.Create(g, q.Table)
+		newG, newKey, _ := d2oracle.Create(g, nil, q.Table)
 		// Set the shape of the newly created object to be D2 shape type "sql_table"
 		shape := "sql_table"
-		newG, _ = d2oracle.Set(g, fmt.Sprintf("%s.shape", newKey), nil, &shape)
+		newG, _ = d2oracle.Set(g, nil, fmt.Sprintf("%s.shape", newKey), nil, &shape)
 		return newG
 	case "add_column":
-		newG, _ := d2oracle.Set(g, fmt.Sprintf("%s.%s", q.Table, q.Column), nil, &q.Type)
+		newG, _ := d2oracle.Set(g, nil, fmt.Sprintf("%s.%s", q.Table, q.Column), nil, &q.Type)
 		return newG
 	case "add_foreign_key":
-		newG, _, _ := d2oracle.Create(g, fmt.Sprintf("%s.%s -> %s.%s", q.Table, q.Column, q.ForeignTable, q.ForeignColumn))
+		newG, _, _ := d2oracle.Create(g, nil, fmt.Sprintf("%s.%s -> %s.%s", q.Table, q.Column, q.ForeignTable, q.ForeignColumn))
 		return newG
 	}
 	return nil
